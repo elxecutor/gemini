@@ -7,7 +7,7 @@ use ratatui::{
     },
     Frame,
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
 
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
@@ -152,7 +152,7 @@ fn render_chat_area(f: &mut Frame, area: Rect, app: &AppState) {
         
         if message.is_user {
             // User message (right-aligned, blue bubble)
-            let max_width = area.width.saturating_sub(8) as usize; // Leave space for padding and borders
+            let max_width = area.width.saturating_sub(10) as usize; // More conservative width
             let wrapped_content = wrap_text(&message.content, max_width);
             
             // Calculate the width needed for this bubble
@@ -165,7 +165,7 @@ fn render_chat_area(f: &mut Frame, area: Rect, app: &AppState) {
             let bubble_width = content_width + 4; // Add padding
             let timestamp_header = format!("You {}", timestamp);
             let header_width = timestamp_header.width() + 4;
-            let actual_width = bubble_width.max(header_width);
+            let actual_width = bubble_width.max(header_width).min(max_width + 4);
             
             // Create top border
             let top_border = format!("╭─ {} {}╮", 
@@ -180,19 +180,26 @@ fn render_chat_area(f: &mut Frame, area: Rect, app: &AppState) {
                 ]),
             ];
             
-            // Add content lines
+            // Add content lines with markdown parsing
             for line in wrapped_content {
-                let content_line = format!("You: {}", line);
-                let right_padding = " ".repeat(actual_width.saturating_sub(content_line.width() + 2));
+                let content_prefix = "You: ";
+                let right_padding_size = actual_width.saturating_sub(content_prefix.width() + line.width() + 2);
+                let right_padding = " ".repeat(right_padding_size);
                 let left_padding = " ".repeat(area.width.saturating_sub(actual_width as u16 + 2) as usize);
                 
-                lines.push(Line::from(vec![
+                let mut line_spans = vec![
                     Span::raw(left_padding),
                     Span::styled("│ ", Style::default().fg(Color::Cyan)),
-                    Span::styled(content_line, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::raw(right_padding),
-                    Span::styled(" │", Style::default().fg(Color::Cyan)),
-                ]));
+                    Span::styled(content_prefix, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                ];
+                
+                // Parse markdown for user messages too
+                line_spans.extend(parse_markdown_spans(&line));
+                
+                line_spans.push(Span::raw(right_padding));
+                line_spans.push(Span::styled(" │", Style::default().fg(Color::Cyan)));
+                
+                lines.push(Line::from(line_spans));
             }
             
             // Create bottom border
@@ -206,7 +213,7 @@ fn render_chat_area(f: &mut Frame, area: Rect, app: &AppState) {
             items.push(ListItem::new(lines));
         } else {
             // Gemini message (left-aligned, green bubble)
-            let max_width = area.width.saturating_sub(6) as usize;
+            let max_width = area.width.saturating_sub(8) as usize; // More conservative width
             let wrapped_content = wrap_text(&message.content, max_width);
             
             // Calculate the width needed for this bubble
@@ -216,9 +223,9 @@ fn render_chat_area(f: &mut Frame, area: Rect, app: &AppState) {
                 .unwrap_or(10)
                 .min(max_width);
             
-            let timestamp_header = format!("Gemini {}", timestamp);
+            let timestamp_header = format!("🤖 Gemini {}", timestamp);
             let header_width = timestamp_header.width() + 4;
-            let actual_width = content_width.max(header_width);
+            let actual_width = content_width.max(header_width).min(max_width);
             
             // Create top border
             let top_border = format!("╭─ {} {}╮",
@@ -232,17 +239,23 @@ fn render_chat_area(f: &mut Frame, area: Rect, app: &AppState) {
                 ]),
             ];
             
-            // Add content lines
+            // Add content lines with markdown parsing
             for line in wrapped_content {
                 let padding_size = actual_width.saturating_sub(line.width() + 2);
                 let padding = " ".repeat(padding_size);
                 
-                lines.push(Line::from(vec![
+                let mut line_spans = vec![
                     Span::styled("│ ", Style::default().fg(Color::Green)),
-                    Span::styled(line, Style::default().fg(Color::White)),
-                    Span::raw(padding),
-                    Span::styled(" │", Style::default().fg(Color::Green)),
-                ]));
+                ];
+                
+                // Parse markdown and add spans
+                line_spans.extend(parse_markdown_spans(&line));
+                
+                // Add padding and closing border
+                line_spans.push(Span::raw(padding));
+                line_spans.push(Span::styled(" │", Style::default().fg(Color::Green)));
+                
+                lines.push(Line::from(line_spans));
             }
             
             // Create bottom border
@@ -377,15 +390,54 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current_line = String::new();
     
+    // Handle minimum width to prevent issues
+    let min_width = 10;
+    let actual_width = width.max(min_width);
+    
     for word in text.split_whitespace() {
-        if current_line.is_empty() {
-            current_line = word.to_string();
-        } else if current_line.width() + 1 + word.width() <= width {
-            current_line.push(' ');
-            current_line.push_str(word);
+        // Handle very long words by breaking them
+        if word.width() > actual_width {
+            // If we have content in current line, push it first
+            if !current_line.is_empty() {
+                lines.push(current_line);
+                current_line = String::new();
+            }
+            
+            // Break the long word into chunks
+            let mut remaining = word;
+            while !remaining.is_empty() {
+                let mut chunk_end = 0;
+                let mut chunk_width = 0;
+                
+                for (i, c) in remaining.char_indices() {
+                    let char_width = c.width().unwrap_or(0);
+                    if chunk_width + char_width > actual_width {
+                        break;
+                    }
+                    chunk_width += char_width;
+                    chunk_end = i + c.len_utf8();
+                }
+                
+                if chunk_end == 0 {
+                    // Single character is too wide, take it anyway
+                    chunk_end = remaining.chars().next().unwrap().len_utf8();
+                }
+                
+                let chunk = &remaining[..chunk_end];
+                lines.push(chunk.to_string());
+                remaining = &remaining[chunk_end..];
+            }
         } else {
-            lines.push(current_line);
-            current_line = word.to_string();
+            // Normal word processing
+            if current_line.is_empty() {
+                current_line = word.to_string();
+            } else if current_line.width() + 1 + word.width() <= actual_width {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                lines.push(current_line);
+                current_line = word.to_string();
+            }
         }
     }
     
@@ -398,4 +450,56 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
     
     lines
+}
+
+fn parse_markdown_spans(text: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut chars = text.chars().peekable();
+    let mut current_text = String::new();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '*' && chars.peek() == Some(&'*') {
+            // Found start of bold text
+            chars.next(); // consume second *
+            
+            // Push any accumulated normal text
+            if !current_text.is_empty() {
+                spans.push(Span::styled(current_text.clone(), Style::default().fg(Color::White)));
+                current_text.clear();
+            }
+            
+            // Collect bold text until next **
+            let mut bold_text = String::new();
+            let mut found_end = false;
+            
+            while let Some(ch) = chars.next() {
+                if ch == '*' && chars.peek() == Some(&'*') {
+                    chars.next(); // consume second *
+                    found_end = true;
+                    break;
+                }
+                bold_text.push(ch);
+            }
+            
+            if found_end {
+                spans.push(Span::styled(
+                    bold_text,
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                ));
+            } else {
+                // No closing **, treat as regular text
+                current_text.push_str("**");
+                current_text.push_str(&bold_text);
+            }
+        } else {
+            current_text.push(ch);
+        }
+    }
+    
+    // Push any remaining normal text
+    if !current_text.is_empty() {
+        spans.push(Span::styled(current_text, Style::default().fg(Color::White)));
+    }
+    
+    spans
 }

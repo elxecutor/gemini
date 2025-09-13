@@ -24,12 +24,12 @@ pub fn run_demo() -> Result<()> {
 
     let mut state = AppState::default();
     
-    // Add some demo messages to show the fixed bubbles
-    state.add_message("Hello Gemini! How are you today?".to_string(), true);
-    state.add_message("Hello! I'm doing great, thank you for asking! I'm here to help you with any questions or tasks you might have. The weather has been lovely lately, and I've been enjoying our conversations. How has your day been going so far?".to_string(), false);
-    state.add_message("That's wonderful to hear! I've been working on a TUI chat application in Rust.".to_string(), true);
-    state.add_message("That sounds like an exciting project! Rust is an excellent choice for building TUI applications. The combination of performance, memory safety, and the rich ecosystem of crates like ratatui makes it perfect for creating responsive and beautiful terminal interfaces. Are you finding the development process enjoyable?".to_string(), false);
-    state.add_message("Yes, very much! The bubble design looks much better now.".to_string(), true);
+    // Add some demo messages to show the fixed bubbles with bold text
+    state.add_message("Hello Gemini! How are you today? Can you show me some **bold text** examples?".to_string(), true);
+    state.add_message("Hello! I'm doing **great**, thank you for asking! I'm here to help you with any questions or tasks you might have. Here are some **formatting examples**: This text has **bold parts** and normal parts mixed together. The weather has been lovely lately, and I've been enjoying our conversations. How has your day been going so far?".to_string(), false);
+    state.add_message("That's wonderful to hear! I've been working on a **TUI chat application** in **Rust** with very long messages that should wrap properly without distorting the bubble layout.".to_string(), true);
+    state.add_message("That sounds like an **exciting project**! Rust is an excellent choice for building **TUI applications**. The combination of **performance**, **memory safety**, and the rich ecosystem of crates like **ratatui** makes it perfect for creating responsive and beautiful terminal interfaces. Here's a very long word: supercalifragilisticexpialidocious which should be properly broken. Are you finding the development process enjoyable?".to_string(), false);
+    state.add_message("Yes, very much! The **bubble design** looks much better now with proper **text wrapping** and **bold formatting**!".to_string(), true);
 
     state.status_message = "Demo Mode - Press any key to continue, Ctrl+C to exit".to_string();
 
