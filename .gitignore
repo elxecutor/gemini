@@ -1,0 +1,22 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config files (contains API keys)
+config.json
+
+# Build artifacts
+*.exe
+*.pdb
